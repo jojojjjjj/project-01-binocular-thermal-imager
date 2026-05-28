@@ -1,0 +1,220 @@
+# ============================================================
+# ThermalEyes 双目手机热成像仪 - 配置模板
+# ThermalEyes Binocular Thermal Imager - Configuration Template
+# ============================================================
+# 复制此文件为 config.yaml 并根据实际硬件修改配置
+# Copy this file to config.yaml and modify settings for your hardware
+# 开源参考 | Open-source reference:
+#   固件 | Firmware: https://github.com/colourfate/thermal_bridge
+#   安卓 | Android:  https://github.com/colourfate/ThermalEyes
+# ============================================================
+
+# ================================
+# 硬件引脚配置 | Hardware Pin Configuration
+# STM32F411 引脚分配 | STM32F411 Pin Assignment
+# ================================
+hardware:
+  # I2C1 总线 - 连接 MLX90640 热成像传感器
+  # I2C1 bus - Connected to MLX90640 thermal sensor
+  i2c:
+    bus: 1                            # I2C 总线编号 | I2C bus number
+    scl_pin: "PB6"                    # I2C 时钟引脚 | I2C clock pin
+    sda_pin: "PB7"                    # I2C 数据引脚 | I2C data pin
+    clock_speed: 400000               # I2C 时钟频率 (Hz), 400kHz = Fast Mode
+                                       # I2C clock speed, 400kHz = Fast Mode
+
+  # USB - 虚拟串口 (CDC) 通信
+  # USB - Virtual serial port (CDC) communication
+  usb:
+    dp_pin: "PA12"                    # USB D+ 引脚 | USB D+ pin
+    dm_pin: "PA11"                    # USB D- 引脚 | USB D- pin
+    vendor_id: 0x0483                 # ST Microelectronics VID
+    product_id: 0x5740                # CDC 设备 PID | CDC device PID
+
+  # 调试串口 (UART) - 用于开发调试，正式版可关闭
+  # Debug UART - For development debugging, can be disabled in release
+  debug_uart:
+    enabled: true
+    tx_pin: "PA2"
+    rx_pin: "PA3"
+    baudrate: 115200
+
+# ================================
+# MLX90640 传感器配置 | MLX90640 Sensor Configuration
+# Melexis 红外热成像阵列传感器 | Melexis IR thermal array sensor
+# 分辨率: 32x24 像素 | Resolution: 32x24 pixels
+# ================================
+sensor:
+  # I2C 设备地址 | I2C device address
+  # MLX90640 有两个可选地址: 0x33 (默认) 和 0x33/0x33A
+  address: 0x33                       # 7位 I2C 地址 | 7-bit I2C address
+
+  # 刷新率 | Refresh rate
+  # 可选值 | Available values: 0.5, 1, 2, 4, 8, 16, 32, 64 Hz
+  # 注意: 更高的刷新率会降低每帧的积分时间，可能影响精度
+  # Note: Higher refresh rate reduces integration time per frame, may affect accuracy
+  refresh_rate: 8                     # Hz (推荐 8Hz 用于实时显示 | Recommended 8Hz for live display)
+
+  # 测量范围 | Measurement range
+  temperature_min: -40.0              # 最低温度 (°C) | Minimum temperature
+  temperature_max: 300.0              # 最高温度 (°C) | Maximum temperature
+  emissivity: 0.95                    # 发射率 | Emissivity (1.0 = perfect blackbody)
+
+  # 分辨率配置 | Resolution configuration
+  resolution: "32x24"                 # 传感器像素阵列 | Sensor pixel array
+
+  # ADC 分辨率 | ADC resolution
+  # 16位(默认) 或 17位(更高精度但更慢)
+  # 16-bit (default) or 17-bit (higher accuracy but slower)
+  adc_resolution: 16
+
+  # 读取模式 | Reading mode
+  # interleaved: 交错读取，减少噪声
+  # interleaved: Interleaved reading, reduces noise
+  reading_pattern: "interleaved"
+
+# ================================
+# USB 通信配置 | USB Communication Configuration
+# ================================
+communication:
+  # USB CDC (虚拟串口) 参数
+  # USB CDC (Virtual Serial Port) parameters
+  usb_cdc:
+    # 数据包格式 | Data packet format
+    # 帧头(2B) + 帧计数(2B) + 温度数据(32*24*2=1536B) + 校验(2B) = 1542 bytes
+    header: 0x5A5A                    # 帧头标识 | Frame header magic bytes
+    max_packet_size: 1542             # 最大包大小 | Maximum packet size (bytes)
+    send_interval_ms: 125             # 发送间隔 (ms), 8Hz = 125ms
+                                        # Send interval, 8Hz = 125ms
+
+  # 数据编码 | Data encoding
+  # 原始温度值以 0.01°C 为单位，用 16 位有符号整数传输
+  # Raw temperature in 0.01°C units, transmitted as 16-bit signed integer
+  temp_unit: 0.01                     # 温度分辨率 (°C/LSB) | Temperature resolution
+
+# ================================
+# 图像融合参数 | Image Fusion Parameters
+# 可见光 + 热成像图像融合配置
+# Visible light + thermal image fusion configuration
+# ================================
+fusion:
+  # 融合模式 | Fusion mode
+  # "overlay"    - 热成像叠加在可见光上 | Thermal overlaid on visible
+  # "side_by_side" - 并排显示 | Side by side display
+  # "blend"      - 加权混合 | Weighted blending
+  # "frequency"  - 频率域分解融合 | Frequency domain decomposition fusion
+  default_mode: "frequency"
+
+  # 频率域融合参数 | Frequency domain fusion parameters
+  # 使用高斯模糊进行高低频分解
+  # Using Gaussian blur for high/low frequency decomposition
+  frequency_fusion:
+    # 高斯模糊核大小 (必须为奇数)
+    # Gaussian blur kernel size (must be odd)
+    gaussian_kernel_size: 15
+
+    # 高斯模糊标准差 (sigma)
+    # Gaussian blur standard deviation
+    gaussian_sigma: 5.0
+
+    # 高频权重 (来自可见光的高频细节)
+    # High-frequency weight (visible light detail)
+    high_freq_ratio: 0.6              # 0.0~1.0, 越大可见光细节越多
+                                        # 0.0~1.0, higher = more visible light detail
+
+    # 低频权重 (来自热成像的低频温度信息)
+    # Low-frequency weight (thermal temperature info)
+    low_freq_ratio: 0.4               # 0.0~1.0, 越大热成像信息越多
+                                        # 0.0~1.0, higher = more thermal info
+
+  # 视差补偿 | Disparity compensation
+  # 双目摄像头与热传感器的物理偏移校正
+  # Physical offset correction between binocular camera and thermal sensor
+  disparity:
+    enabled: true
+    offset_x: 0                       # 水平偏移 (像素) | Horizontal offset (pixels)
+    offset_y: 0                       # 垂直偏移 (像素) | Vertical offset (pixels)
+    scale_factor: 1.0                 # 缩放因子 | Scale factor
+
+  # 伪彩色映射 | Pseudo-color mapping
+  # 将温度值映射为彩色显示 | Map temperature values to color display
+  color_palette:
+    # 可选方案 | Available palettes:
+    # "ironbow"    - 铁虹 (经典热成像配色，蓝→红→黄→白)
+    # "ironbow"    - Ironbow (classic thermal, blue->red->yellow->white)
+    # "rainbow"    - 彩虹 | Rainbow
+    # "grayscale"  - 灰度 | Grayscale
+    # "hot"        - 热力 (黑→红→黄→白) | Hot (black->red->yellow->white)
+    # "cool"       - 冷色 (蓝→青→绿) | Cool (blue->cyan->green)
+    default: "ironbow"
+
+    # 温度显示范围 | Temperature display range
+    display_min: 20.0                 # 显示最低温度 (°C) | Display minimum temperature
+    display_max: 40.0                 # 显示最高温度 (°C) | Display maximum temperature
+
+    # 自动调整范围 | Auto-adjust range
+    auto_range: true                  # 根据当前帧自动调整温度范围
+                                       # Auto-adjust temperature range per frame
+
+  # 可见光摄像头参数 | Visible light camera parameters
+  camera:
+    resolution_width: 640
+    resolution_height: 480
+    fps: 30                           # UVC 摄像头帧率 | UVC camera frame rate
+
+# ================================
+# Android 构建配置说明 | Android Build Configuration Notes
+# ================================
+android_build:
+  # 最低 SDK 版本 | Minimum SDK version
+  min_sdk: 21                         # Android 5.0 (Lollipop)
+
+  # 目标 SDK 版本 | Target SDK version
+  target_sdk: 33                      # Android 13
+
+  # Gradle 依赖 | Gradle dependencies
+  # 在 app/build.gradle 中添加以下依赖：
+  # Add the following dependencies in app/build.gradle:
+  #
+  # OpenCV:
+  #   implementation 'org.opencv:opencv-android:4.9.0'
+  #   或下载 OpenCV Android SDK: https://opencv.org/releases/
+  #   Or download OpenCV Android SDK from: https://opencv.org/releases/
+  #
+  # USB Serial:
+  #   implementation 'com.github.mik3y:usb-serial-for-android:3.8.1'
+  #   (需要 JitPack 仓库 | Requires JitPack repository)
+  #
+  # UVC Camera:
+  #   implementation 'com.serenegiant:common:4.6.0'
+  #   参考 | Reference: https://github.com/saki4510t/UVCAndroid
+
+  # NDK 配置 | NDK configuration
+  # 用于编译 native-lib.cpp (OpenCV 图像处理)
+  # For compiling native-lib.cpp (OpenCV image processing)
+  ndk_version: "25.2.9519653"
+  cmake_min_version: "3.22.1"
+
+  # JNI 需要的 ABI | Required ABIs for JNI
+  abis:
+    - "arm64-v8a"                     # 64位 ARM (大多数现代手机) | 64-bit ARM (most modern phones)
+    - "armeabi-v7a"                   # 32位 ARM (旧手机) | 32-bit ARM (older phones)
+
+# ================================
+# 调试与日志 | Debug & Logging
+# ================================
+debug:
+  # 固件调试开关 | Firmware debug switch
+  firmware_debug: true                # 开启后通过 UART 输出调试信息
+                                       # When enabled, output debug info via UART
+
+  # 保存原始帧数据 | Save raw frame data
+  save_raw_frames: false              # 保存原始温度数据到文件 (用于离线分析)
+                                       # Save raw temperature data to file (for offline analysis)
+
+  # 显示帧率 | Display frame rate
+  show_fps: true                      # 在画面上显示 FPS | Show FPS on screen
+
+  # 温度数据记录 | Temperature data logging
+  log_temperatures: false             # 记录每帧的最高/最低温度
+                                       # Log min/max temperatures per frame

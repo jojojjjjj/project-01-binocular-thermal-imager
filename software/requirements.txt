@@ -1,0 +1,68 @@
+# ============================================================
+# ThermalEyes 双目手机热成像仪 - 开发工具依赖
+# ThermalEyes Binocular Thermal Imager - Development Tool Dependencies
+# ============================================================
+# 注意：这些是开发辅助工具，不是固件或APP本身的依赖
+# Note: These are development aid tools, not dependencies for the firmware or app itself
+
+# -----------------------------------------------------------
+# 数据分析与可视化 | Data Analysis & Visualization
+# 用于解析和可视化从 MLX90640 传感器读取的热成像数据
+# Used for parsing and visualizing thermal data from MLX90640
+# -----------------------------------------------------------
+numpy>=1.21.0              # 数值计算 | Numerical computing
+matplotlib>=3.5.0          # 绘制热力图 | Plot heatmaps
+opencv-python>=4.6.0       # 图像处理（原型验证）| Image processing (prototype verification)
+Pillow>=9.0.0              # 图像读写 | Image read/write
+scipy>=1.9.0               # 高斯模糊等信号处理 | Gaussian blur and signal processing
+
+# -----------------------------------------------------------
+# 串口通信工具 | Serial Communication Tools
+# 用于通过 USB 调试 STM32 固件和测试数据传输
+# Used for debugging STM32 firmware and testing data transfer via USB
+# -----------------------------------------------------------
+pyserial>=3.5              # 串口通信 | Serial communication
+pyusb>=1.2.1               # USB 设备访问 | USB device access
+
+# -----------------------------------------------------------
+# I2C 通信（可选，用于直接在 PC 上测试传感器）
+# I2C Communication (optional, for testing sensor directly on PC)
+# -----------------------------------------------------------
+# smbus2>=0.4.0            # Linux I2C 通信 | Linux I2C communication
+# adafruit-circuitpython-mlx90640>=1.2.0  # MLX90640 Python 驱动 | MLX90640 Python driver
+
+# -----------------------------------------------------------
+# 固件开发参考 | Firmware Development References
+# STM32CubeIDE 和 STM32CubeMX 需要单独安装
+# STM32CubeIDE and STM32CubeMX need to be installed separately
+# 下载地址 | Download: https://www.st.com/en/development-tools/stm32cubeide.html
+# -----------------------------------------------------------
+
+# -----------------------------------------------------------
+# Android 开发参考 | Android Development References
+# Android Studio 需要单独安装
+# Android Studio needs to be installed separately
+# 下载地址 | Download: https://developer.android.com/studio
+#
+# Android 项目中需要通过 Gradle 添加以下依赖：
+# Dependencies to add via Gradle in the Android project:
+#   - com.serenegiant:common:4.x.x        (UVCAndroid)
+#   - org.opencv:opencv-android:4.x.x      (OpenCV)
+#   - com.github.mik3y:usb-serial-for-android:3.x.x (UsbSerial)
+# -----------------------------------------------------------
+
+# -----------------------------------------------------------
+# 配置文件解析 | Configuration File Parsing
+# -----------------------------------------------------------
+pyyaml>=6.0                # 读取 config.yaml | Read config.yaml
+
+# -----------------------------------------------------------
+# 测试框架 | Testing Framework
+# -----------------------------------------------------------
+pytest>=7.0.0              # 单元测试 | Unit testing
+
+# -----------------------------------------------------------
+# 文档与报告（可选）| Documentation & Reports (Optional)
+# -----------------------------------------------------------
+# sphinx>=5.0.0            # 文档生成 | Documentation generation
+# jinja2>=3.1.0            # 模板渲染 | Template rendering
