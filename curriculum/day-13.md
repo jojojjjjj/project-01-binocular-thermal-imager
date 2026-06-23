@@ -1,18 +1,19 @@
 # Day 13: 图像融合与 UI 完善 | Image Fusion & UI Refinement
 
+> **主线说明（体验档）**：本课程主线是「PC 端 Python+OpenCV 可视化」（对齐 assignments.md 的 HW4）。今天用 `cv2.VideoCapture(0)` 取电脑摄像头可见光画面 + `cv2.addWeighted` 做透明度叠加，再用高斯频率分解做高频增强融合，几行就能跑（day-11/12 已给骨架）。最后把 USB 接收、伪彩、融合串成一个完整的 PC 脚本，准备进入全系统联调。想做成手机 APP 的同学可参考 colourfate 开源的 Android 版（进阶，不作为主线要求）。
+
 ## 学习目标 | Learning Objectives
 
-- 理解图像融合的概念和常用算法（透明度叠加、加权融合）
-- 使用 OpenCV 实现可见光图像与热图像的融合
-- 集成 UVCAndroid 库获取 USB 摄像头可见光画面
-- 集成 UsbSerial 库接收 STM32 发送的温度数据
-- 完善 APP 的用户界面和交互功能
+- 理解图像融合的概念和常用算法（透明度叠加、高频增强）
+- 用 OpenCV 实现可见光图像与热图像的融合
+- 用 `cv2.VideoCapture(0)` 取电脑摄像头画面
+- 把 USB 接收、伪彩映射、融合、显示串成一个完整的 PC 可视化脚本
 
 ## 前置准备 | Prerequisites
 
-- [ ] Day 12 伪彩色热图像渲染成功
-- [ ] ThermalEyes APP 项目能编译运行
-- [ ] 已浏览开源 APP 仓库的代码结构
+- [ ] Day 12 的 Ironbow/Rainbow 伪彩映射能显示
+- [ ] `scripts/usb_receiver.py` 能读帧并显示热图
+- [ ] 电脑有摄像头（笔记本自带或 USB 摄像头都行；没有也能跑纯热图模式）
 
 ## 为什么学这个？| Why This Matters
 
@@ -32,244 +33,129 @@
    - 融合 = alpha * 可见光图像 + (1-alpha) * 热图像
    - alpha 值控制融合比例：0=纯热图，1=纯可见光
 
-2. **实现 C++ 融合函数**
+2. **实现透明度叠加融合**
 
-   ```cpp
-   /**
-    * @brief 融合可见光图像和热图像
-    * @param visible 可见光图像 (BGR, 320x240)
-    * @param thermal 热图像 (BGR, 320x240)
-    * @param alpha 融合系数 [0.0, 1.0]，0=纯热图，1=纯可见光
-    * @return 融合后的图像
-    */
-   cv::Mat fuseImages(const cv::Mat& visible, const cv::Mat& thermal, float alpha) {
-       CV_Assert(visible.size() == thermal.size());
-       CV_Assert(visible.type() == CV_8UC3);
-       CV_Assert(thermal.type() == CV_8UC3);
+   OpenCV 的 `cv2.addWeighted` 一行就能做加权融合：
 
-       cv::Mat result(visible.size(), CV_8UC3);
-
-       for (int y = 0; y < visible.rows; y++) {
-           for (int x = 0; x < visible.cols; x++) {
-               cv::Vec3b v = visible.at<cv::Vec3b>(y, x);
-               cv::Vec3b t = thermal.at<cv::Vec3b>(y, x);
-
-               // 加权融合
-               result.at<cv::Vec3b>(y, x) = cv::Vec3b(
-                   (uchar)(alpha * v[0] + (1.0f - alpha) * t[0]),
-                   (uchar)(alpha * v[1] + (1.0f - alpha) * t[1]),
-                   (uchar)(alpha * v[2] + (1.0f - alpha) * t[2])
-               );
-           }
-       }
-
-       return result;
-
-       // 或者使用 OpenCV 内置函数（更高效）：
-       // cv::addWeighted(visible, alpha, thermal, 1.0 - alpha, 0, result);
-   }
+   ```python
+   def fuse_alpha(visible, thermal, alpha=0.6):
+       """透明度叠加：alpha=0.6 偏可见光，0.4 偏热图。两张图要同尺寸。"""
+       visible = cv2.resize(visible, (320, 240))
+       thermal = cv2.resize(thermal, (320, 240))
+       return cv2.addWeighted(visible, alpha, thermal, 1.0 - alpha, 0)
    ```
 
-3. **使用 OpenCV 高效版本**
-   ```cpp
-   cv::Mat fuseImagesFast(const cv::Mat& visible, const cv::Mat& thermal, float alpha) {
-       cv::Mat result;
-       cv::addWeighted(visible, alpha, thermal, 1.0 - alpha, 0.0, result);
-       return result;
-   }
-   ```
+3. **实现高频增强融合**
 
-4. **添加 JNI 接口**
-   ```cpp
-   extern "C" JNIEXPORT jobject JNICALL
-   Java_com_example_thermaleyes_MainActivity_fuseImages(
-           JNIEnv* env, jobject thiz,
-           jobject visibleBitmap, jfloatArray tempData,
-           jfloat alpha, jfloat minTemp, jfloat maxTemp) {
+   另一种思路：把热图的"边缘"（高频）叠到可见光上，既保留可见光的细节，又让热区有强调。做法是高斯模糊得到低频，高频=热图-低频，再叠加。`software/tests/test_basic.py` 里已有高斯频率分解函数可参考。
 
-       // 将 Android Bitmap 转换为 OpenCV Mat
-       // ... (使用 AndroidBitmap_lockPixels)
-
-       // 渲染热图像
-       // ... (使用 Day 12 的函数)
-
-       // 融合
-       cv::Mat fused = fuseImagesFast(visibleMat, thermalMat, alpha);
-
-       // 转换回 Bitmap
-       // ...
-
-       return resultBitmap;
-   }
+   ```python
+   def fuse_highfreq(visible, thermal, ksize=5, gain=1.5):
+       """高频增强：把热图的边缘信息叠到可见光上。"""
+       visible = cv2.resize(visible, (320, 240))
+       thermal = cv2.resize(thermal, (320, 240))
+       low = cv2.GaussianBlur(thermal, (ksize, ksize), 0)   # 低频（平滑的底）
+       high = cv2.subtract(thermal, low)                    # 高频（边缘/热点轮廓）
+       # 把高频加到可见光上，gain 控制增强强度
+       fused = cv2.addWeighted(visible, 1.0, high, gain, 0)
+       return fused
    ```
 
 **预期结果：**
-- 图像融合函数完成
-- 能调整融合比例
+- 两种融合函数都写好
+- 能调整 alpha / gain 看效果变化
 
 **常见问题：**
 
-**Q: 融合后图像颜色偏暗？**
-A: 确保两个输入图像的像素值范围一致（0-255）。如果热图像使用了不同的值范围，需要先归一化。
+**Q: 融合后图像颜色偏暗或发白？**
+A: 确保两个输入都是 0-255 的 uint8、同尺寸。`addWeighted` 的权重之和接近 1 不会整体变亮/变暗；高频增强里 `gain` 太大会让画面过曝，调小一点。
+
+**Q: 热图和可见光对不上？**
+A: 电脑摄像头和 MLX90640 物理位置不同，画面有视差，本项目接受近似对齐即可（不必做精确配准）。把摄像头尽量靠近 MLX90640、朝同一方向能减轻错位。
 
 ---
 
-### Task 2: 集成 USB 通信功能 (estimated 75 minutes)
+### Task 2: 接摄像头 + 把融合接进主循环 (estimated 60 minutes)
 
-**目标：** 在 APP 中实现 USB 串口通信，接收固件发送的温度数据
+**目标：** 用电脑摄像头取可见光画面，把 Task 1 的融合函数接进 USB 读帧主循环
 
 **步骤：**
 
-1. **添加 USB Host 权限**
-   - 在 `AndroidManifest.xml` 中添加：
-   ```xml
-   <uses-feature android:name="android.hardware.usb.host" />
-   <uses-permission android:name="android.permission.USB_PERMISSION" />
+1. **打开电脑摄像头**
+
+   `cv2.VideoCapture(0)` 就能取本机摄像头（0 是默认摄像头编号）。没有摄像头也能跑，退化为只显示热图。
+
+   ```python
+   cap = cv2.VideoCapture(0)               # 0=笔记本自带摄像头；外接 USB 摄像头可能是 1
+   has_cam = cap.isOpened()
+   if not has_cam:
+       print("没找到摄像头，将只显示热图模式")
    ```
 
-2. **集成 UsbSerial 库**
-   - 在 `app/build.gradle` 中添加依赖：
-   ```gradle
-   implementation 'com.github.mik3y:usb-serial-for-android:3.4.6'
-   ```
-   - 或参考 ThermalEyes APP 仓库的依赖配置
+2. **在主循环里同时取热图和可见光，做融合**
 
-3. **创建 USB 通信管理类**
-   ```java
-   public class UsbSerialManager {
-       private static final String TAG = "UsbSerial";
-       private UsbManager usbManager;
-       private UsbSerialPort serialPort;
-       private boolean isConnected = false;
+   把 day-11/12 的读帧循环扩成：读一帧温度 → 渲染热图 → 读一帧可见光 → 融合 → 显示。用按键切显示模式。
 
-       // 帧头帧尾
-       private static final int FRAME_HEADER = 0xAA55;
-       private static final int FRAME_SIZE = 1546;
+   ```python
+   mode = 'alpha'   # alpha / highfreq / thermal_only / visible_only
+   while True:
+       # 1) 读温度帧（复用 day-11 的 parse_thermal_packet）
+       buf += ser.read(ser.in_waiting or 1)
+       while len(buf) >= PACKET_TOTAL_SIZE:
+           frame = buf[:PACKET_TOTAL_SIZE]; buf = buf[PACKET_TOTAL_SIZE:]
+           try:
+               temps, count, crc_ok = parse_thermal_packet(frame)
+           except AssertionError:
+               buf = buf[1:]; continue
+           if not crc_ok:
+               continue
+           thermal = temp_to_color(temps, scheme)        # day-12 的伪彩函数
 
-       public interface TemperatureCallback {
-           void onTemperatureData(float[] temperatures, float minTemp, float maxTemp);
-       }
+           # 2) 读可见光（有摄像头时）
+           visible = None
+           if has_cam:
+               ok, visible = cap.read()
+               if ok:
+                   visible = cv2.resize(visible, (320, 240))
 
-       private TemperatureCallback callback;
+           # 3) 按当前模式合成画面
+           if mode == 'thermal_only' or visible is None:
+               out = thermal
+           elif mode == 'visible_only':
+               out = visible
+           elif mode == 'highfreq':
+               out = fuse_highfreq(visible, thermal)
+           else:  # alpha
+               out = fuse_alpha(visible, thermal)
 
-       public UsbSerialManager(Context context) {
-           usbManager = (UsbManager) context.getSystemService(Context.USB_SERVICE);
-       }
-
-       public void setCallback(TemperatureCallback cb) {
-           this.callback = cb;
-       }
-
-       public boolean connect() {
-           // 查找所有 USB 设备
-           for (UsbDevice device : usbManager.getDeviceList().values()) {
-               // 查找 CDC 设备
-               UsbSerialDriver driver = UsbSerialProber.getDefaultProber().probeDevice(device);
-               if (driver != null) {
-                   // 请求权限
-                   if (!usbManager.hasPermission(device)) {
-                       // 需要先请求权限
-                       return false;
-                   }
-
-                   // 打开连接
-                   UsbDeviceConnection connection = usbManager.openDevice(device);
-                   serialPort = driver.getPorts().get(0);
-                   serialPort.open(connection);
-                   serialPort.setParameters(115200, 8, UsbSerialPort.STOPBITS_1,
-                                               UsbSerialPort.PARITY_NONE);
-
-                   isConnected = true;
-                   startReading();
-                   return true;
-               }
-           }
-           return false;
-       }
-
-       private void startReading() {
-           new Thread(() -> {
-               byte[] buffer = new byte[4096];
-               while (isConnected) {
-                   try {
-                       int len = serialPort.read(buffer, 100);
-                       if (len > 0) {
-                           parseData(buffer, len);
-                       }
-                   } catch (Exception e) {
-                       Log.e(TAG, "Read error: " + e.getMessage());
-                   }
-               }
-           }).start();
-       }
-
-       private void parseData(byte[] data, int len) {
-           // 查找帧头 0xAA55
-           // 解析帧数据
-           // 转换为温度数组
-           // 调用回调
-           if (callback != null) {
-               float[] temps = new float[768];
-               // ... 解析逻辑 ...
-               callback.onTemperatureData(temps, minTemp, maxTemp);
-           }
-       }
-
-       public void disconnect() {
-           isConnected = false;
-           if (serialPort != null) {
-               try { serialPort.close(); } catch (Exception e) {}
-           }
-       }
-   }
+           cv2.putText(out, f"[{mode}] center: {temps[12*32+16]:.1f}C",
+                       (10, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255,255,255), 1)
+           cv2.imshow('thermal', out)
+           key = cv2.waitKey(1) & 0xFF
+           if key == ord('1'): mode = 'alpha'
+           elif key == ord('2'): mode = 'highfreq'
+           elif key == ord('3'): mode = 'thermal_only'
+           elif key == ord('4'): mode = 'visible_only'
+           elif key == ord('q'): break
+   cap.release(); cv2.destroyAllWindows()
    ```
 
-   **注意：** 这是一个框架代码。完整的帧解析逻辑需要根据 Day 9 定义的帧格式来实现。参考 ThermalEyes APP 仓库中的实际实现。
-
-4. **在 MainActivity 中使用**
-   ```java
-   private UsbSerialManager usbManager;
-
-   @Override
-   protected void onCreate(Bundle savedInstanceState) {
-       // ...
-       usbManager = new UsbSerialManager(this);
-       usbManager.setCallback(new UsbSerialManager.TemperatureCallback() {
-           @Override
-           public void onTemperatureData(float[] temperatures, float minTemp, float maxTemp) {
-               runOnUiThread(() -> {
-                   Bitmap bitmap = renderThermalImage(temperatures, 32, 24, minTemp, maxTemp);
-                   thermalImageView.setImageBitmap(bitmap);
-                   tempInfoText.setText(String.format("%.1fC ~ %.1fC", minTemp, maxTemp));
-               });
-           }
-       });
-   }
-
-   @Override
-   protected void onResume() {
-       super.onResume();
-       usbManager.connect();
-   }
-
-   @Override
-   protected void onPause() {
-       super.onPause();
-       usbManager.disconnect();
-   }
-   ```
+3. **运行验证**
+   - 按 1/2/3/4 切换四种模式，确认都能显示
+   - 手掌测试时，融合模式下应能同时看到手的轮廓（可见光）和热区（暖色）
 
 **预期结果：**
-- APP 能通过 USB 接收温度数据
-- 实时显示热图像
+- 脚本能同时接收 USB 温度帧 + 摄像头画面
+- 四种模式可按键切换
+- 没装摄像头时自动退化为纯热图，不报错
 
 **常见问题：**
 
-**Q: 找不到 USB 设备？**
-A: 确认手机支持 USB Host 模式（不是所有手机都支持）。使用 OTG 线连接。
+**Q: 摄像头打不开 / VideoCapture(0) 返回 False？**
+A: 换成 `cv2.VideoCapture(1)` 试试（外接摄像头编号可能不同）；确认没被别的程序占用（如 Zoom/微信）。实在没有就跑纯热图模式，不影响主线。
 
-**Q: USB 权限被拒绝？**
-A: 需要在 AndroidManifest 中声明 USB 设备的 vendor ID 和 product ID，或使用 USB_DEVICE_ATTACHED intent。
+**Q: 画面很卡？**
+A: 摄像头读取和 USB 读取都在主循环里，会互相拖。可以接受——本项目不追求高帧率，2-4 FPS 够看。想优化可以把摄像头读取放到单独线程，进阶可做。
 
 ---
 

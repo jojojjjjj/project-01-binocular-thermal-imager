@@ -1,8 +1,10 @@
 # Day 14: 全系统联调与优化 | Full System Integration & Optimization
 
+> **主线说明（体验档）**：本课程主线已改为 PC 端 Python+OpenCV 可视化（对齐 assignments.md 的 HW4）。今天端到端联调链路是 MLX90640 → I2C → STM32 → USB → PC 脚本 → 显示，下文出现 "APP" 的地方主线同学理解为"PC 可视化脚本"即可；Android 相关为进阶可选。
+
 ## 学习目标 | Learning Objectives
 
-- 完成硬件 + 固件 + APP 的端到端联调
+- 完成硬件 + 固件 + PC 可视化的端到端联调
 - 识别并解决系统集成中的常见问题
 - 优化系统性能（帧率、延迟、稳定性）
 - 添加错误处理和用户反馈机制

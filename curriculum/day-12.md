@@ -1,18 +1,20 @@
 # Day 12: 伪彩色映射与热图像渲染 | Pseudo-Color Mapping & Thermal Image Rendering
 
+> **主线说明（体验档）**：本课程主线是「PC 端 Python+OpenCV 可视化」（对齐 assignments.md 的 HW4）。今天用 `cv2.applyColorMap` + 自建查表 + `cv2.resize` 实现伪彩映射，几行就能把温度矩阵变成彩色热图，day-11 已给了读帧骨架。想做成手机 APP 的同学可参考 colourfate 开源的 Android 版（进阶，不作为主线要求）。
+
 ## 学习目标 | Learning Objectives
 
 - 理解伪彩色映射的概念和用途
 - 实现常见的伪彩色映射算法（Ironbow、Rainbow、White Hot）
-- 使用 OpenCV 将温度矩阵渲染为彩色图像
-- 在 Android 界面上显示热图像
-- 实现温度数据的插值放大（从 32x24 到 320x240）
+- 用 OpenCV 的 `applyColorMap` 和自建查表把温度矩阵渲染成彩色图像
+- 在 PC 屏幕上用 `cv2.imshow` 显示热图像，并切换多种配色
+- 实现温度数据的插值放大（从 32×24 到 320×240）
 
 ## 前置准备 | Prerequisites
 
-- [ ] Day 11 Android 项目创建成功，OpenCV 集成完成
-- [ ] JNI 调用正常工作
-- [ ] 已了解 ThermalEyes APP 源码结构
+- [ ] Day 11 的 PC 可视化环境装好（pyserial/opencv/numpy 能导入）
+- [ ] `scripts/usb_receiver.py` 能读帧并打印中心温度
+- [ ] 看过 `software/tests/test_basic.py` 里的伪彩映射函数（可直接复用）
 
 ## 为什么学这个？| Why This Matters
 
@@ -61,355 +63,214 @@
 
 ---
 
-### Task 2: 实现 C++ 伪彩色映射函数 (estimated 60 minutes)
+### Task 2: 用 Python 实现 Ironbow 伪彩映射 (estimated 60 minutes)
 
-**目标：** 在 JNI 层用 C++ + OpenCV 实现伪彩色映射
+**目标：** 在 PC 端用 Python + OpenCV 实现伪彩色映射，把温度矩阵变成彩色图像
 
 **步骤：**
 
-1. **编写 Ironbow 配色方案**
+1. **手写一个 Ironbow 查表函数**
 
-   ```cpp
-   // native-lib.cpp
-   #include <opencv2/core.hpp>
-   #include <opencv2/imgproc.hpp>
-   #include <android/bitmap.h>
+   Ironbow 没有 OpenCV 内置 colormap，我们用一组断点（位置、R、G、B）自己线性插值。原理和 Task 1 讲的一样：温度归一化到 [0,1]，再在断点表里查颜色。
 
-   /**
-    * @brief Ironbow 伪彩色映射
-    * @param value 归一化值 [0.0, 1.0]
-    * @return BGR 颜色值（OpenCV 使用 BGR 顺序）
-    */
-   cv::Vec3b ironbowColor(float value) {
-       // 限制范围
-       if (value < 0.0f) value = 0.0f;
-       if (value > 1.0f) value = 1.0f;
+   ```python
+   import numpy as np
+   import cv2
 
-       // Ironbow 断点表（位置, R, G, B）
-       struct ColorStop { float pos; uchar r, g, b; };
-       ColorStop stops[] = {
-           {0.00f,   0,   0,   0},    // 黑
-           {0.10f,  20,   0,  80},    // 深蓝
-           {0.25f,  60,   0, 160},    // 蓝
-           {0.40f, 160,   0, 160},    // 紫
-           {0.55f, 200,  30,  30},    // 红
-           {0.70f, 240, 100,   0},    // 橙
-           {0.85f, 250, 200,  20},    // 黄
-           {1.00f, 255, 255, 255},    // 白
-       };
+   # Ironbow 断点：(位置, R, G, B)
+   IRONBOW_STOPS = [
+       (0.00,   0,   0,   0),    # 黑
+       (0.10,  20,   0,  80),    # 深蓝
+       (0.25,  60,   0, 160),    # 蓝
+       (0.40, 160,   0, 160),    # 紫
+       (0.55, 200,  30,  30),    # 红
+       (0.70, 240, 100,   0),    # 橙
+       (0.85, 250, 200,  20),    # 黄
+       (1.00, 255, 255, 255),    # 白
+   ]
 
-       // 在断点之间线性插值
-       for (int i = 0; i < 7; i++) {
-           if (value >= stops[i].pos && value <= stops[i+1].pos) {
-               float t = (value - stops[i].pos) / (stops[i+1].pos - stops[i].pos);
-               uchar r = stops[i].r + t * (stops[i+1].r - stops[i].r);
-               uchar g = stops[i].g + t * (stops[i+1].g - stops[i].g);
-               uchar b = stops[i].b + t * (stops[i+1].b - stops[i].b);
-               return cv::Vec3b(b, g, r);  // BGR 顺序
-           }
-       }
-       return cv::Vec3b(255, 255, 255);
-   }
+   def build_lut(stops):
+       """把断点表插值成一张 256 项的查找表（OpenCV applyColorMap 要 BGR）。"""
+       stops = sorted(stops)
+       positions = np.array([s[0] for s in stops])
+       colors = np.array([s[1:] for s in stops], dtype=np.float32)
+       # 在 [0,1] 上均匀取 256 个点
+       samples = np.linspace(0, 1, 256)
+       r = np.interp(samples, positions, colors[:, 0])
+       g = np.interp(samples, positions, colors[:, 1])
+       b = np.interp(samples, positions, colors[:, 2])
+       lut = np.stack([b, g, r], axis=1).astype(np.uint8)  # BGR
+       return lut
+
+   IRONBOW_LUT = build_lut(IRONBOW_STOPS)
+
+   def temp_to_ironbow(temps, t_min=None, t_max=None):
+       """温度矩阵（24×32 或 768 个值）→ BGR 彩色图。"""
+       arr = np.array(temps, dtype=np.float32).reshape(24, 32)
+       if t_min is None: t_min = arr.min()
+       if t_max is None: t_max = arr.max()
+       norm = (arr - t_min) / max(t_max - t_min, 0.1)      # 归一化到 0-1
+       idx = (norm * 255).astype(np.uint8)                  # 映射到 0-255
+       color = cv2.applyColorMap(idx, cv2.COLORMAP_USER_LUT if False else None)  # 占位
+       # 用我们自己的 LUT：直接查表
+       color = IRONBOW_LUT[idx]                              # (24,32,3) BGR
+       # 双线性插值放大到 320×240
+       color = cv2.resize(color, (320, 240), interpolation=cv2.INTER_LINEAR)
+       return color
    ```
 
-2. **实现温度矩阵到图像的转换**
+   > 上面 `IRONBOW_LUT[idx]` 就是查表：idx 是 0-255 的索引，直接拿出对应的颜色，比逐像素循环快得多。`cv2.applyColorMap` 也能用，但 Ironbow 不在内置列表里，所以自己建 LUT 最直接。
 
-   ```cpp
-   /**
-    * @brief 将温度数据转换为伪彩色图像
-    * @param tempData 温度数据数组 (768 个 float)
-    * @param width 宽度 (32)
-    * @param height 高度 (24)
-    * @param minTemp 显示最低温度
-    * @param maxTemp 显示最高温度
-    * @return OpenCV Mat (BGR 格式)
-    */
-   cv::Mat temperaturesToImage(float* tempData, int width, int height,
-                               float minTemp, float maxTemp) {
-       // 创建输出图像
-       cv::Mat image(height, width, CV_8UC3);
+2. **接上 Day 11 的主循环，显示 Ironbow 热图**
 
-       float range = maxTemp - minTemp;
-       if (range < 0.1f) range = 0.1f;  // 防止除零
+   把 Day 11 里打印温度的那段，换成调用 `temp_to_ironbow` 再 `cv2.imshow`：
 
-       for (int y = 0; y < height; y++) {
-           for (int x = 0; x < width; x++) {
-               float temp = tempData[y * width + x];
-               float normalized = (temp - minTemp) / range;
-               image.at<cv::Vec3b>(y, x) = ironbowColor(normalized);
-           }
-       }
-
-       // 使用双线性插值放大图像（从 32x24 到 320x240）
-       cv::Mat resized;
-       cv::resize(image, resized, cv::Size(320, 240), 0, 0, cv::INTER_LINEAR);
-
-       return resized;
-   }
+   ```python
+   # 在 Day 11 的 while 循环里：
+   if crc_ok:
+       img = temp_to_ironbow(temps)
+       cv2.putText(img, f"center: {center:.1f}C", (10, 20),
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+       cv2.imshow('thermal', img)
+       cv2.waitKey(1)  # 必须调用，否则窗口不刷新
    ```
 
-3. **创建 JNI 接口函数**
-
-   ```cpp
-   extern "C" JNIEXPORT jobject JNICALL
-   Java_com_example_thermaleyes_MainActivity_renderThermalImage(
-           JNIEnv* env, jobject thiz,
-           jfloatArray tempData, jint width, jint height,
-           jfloat minTemp, jfloat maxTemp) {
-
-       // 获取 Java float 数组
-       jfloat* data = env->GetFloatArrayElements(tempData, nullptr);
-
-       // 转换为 OpenCV 图像
-       cv::Mat image = temperaturesToImage((float*)data, width, height,
-                                           minTemp, maxTemp);
-
-       env->ReleaseFloatArrayElements(tempData, data, JNI_ABORT);
-
-       // 将 OpenCV Mat 转换为 Android Bitmap
-       // 创建 Bitmap 对象
-       jclass bitmapClass = env->FindClass("android/graphics/Bitmap");
-       jmethodID createBitmapMethod = env->GetStaticMethodID(
-           bitmapClass, "createBitmap",
-           "(IILandroid/graphics/Bitmap$Config;)Landroid/graphics/Bitmap;");
-
-       jclass configClass = env->FindClass("android/graphics/Bitmap$Config");
-       jfieldID argb8888Field = env->GetStaticFieldID(configClass, "ARGB_8888",
-           "Landroid/graphics/Bitmap$Config;");
-       jobject argb8888 = env->GetStaticObjectField(configClass, argb8888Field);
-
-       jobject bitmap = env->CallStaticObjectMethod(bitmapClass, createBitmapMethod,
-           image.cols, image.rows, argb8888);
-
-       // 将 Mat 数据复制到 Bitmap
-       cv::Mat rgba;
-       cv::cvtColor(image, rgba, cv::COLOR_BGR2RGBA);
-
-       AndroidBitmapInfo info;
-       AndroidBitmap_getInfo(env, bitmap, &info);
-
-       void* pixels = nullptr;
-       AndroidBitmap_lockPixels(env, bitmap, &pixels);
-
-       memcpy(pixels, rgba.data, rgba.total() * rgba.elemSize());
-
-       AndroidBitmap_unlockPixels(env, bitmap);
-
-       return bitmap;
-   }
-   ```
+3. **运行验证**
+   - 运行脚本，窗口应弹出彩色热图
+   - 手掌覆盖传感器时，手的位置应明显偏暖色（红/橙/黄）
+   - 室温区域应偏冷色（黑/蓝/紫）
 
 **预期结果：**
-- 伪彩色映射函数完成
-- JNI 接口可以将温度数组转换为 Bitmap
+- Ironbow 查表函数完成
+- 屏幕上显示彩色热图，手掌测试有明显的暖色区
 
 **常见问题：**
 
-**Q: 编译时找不到 AndroidBitmap 头文件？**
-A: 在 CMakeLists.txt 中添加：
-```cmake
-find_library(android-lib android)
-target_link_libraries(native-lib ${android-lib})
-```
+**Q: 画面全是一种颜色？**
+A: 归一化没做对。确认 `(arr - t_min) / (t_max - t_min)` 把温度范围铺满了 0-1，再乘 255。如果 `t_max - t_min` 太小（比如都是 25°C），除以一个最小值 0.1 防止除零。
+
+**Q: 颜色看起来不对（BGR/RGB 颠倒）？**
+A: OpenCV 用 BGR 顺序，`cv2.imshow` 也按 BGR 显示。查表时 LUT 存成 BGR（断点表的 R/G/B 在 `np.stack` 时排成 `[b,g,r]`）就不会反。
 
 ---
 
-### Task 3: 在 Android 界面显示热图像 (estimated 60 minutes)
+### Task 3: 多配色切换显示热图像 (estimated 60 minutes)
 
-**目标：** 创建 Android UI，使用 ImageView 显示热图像
+**目标：** 在 PC 窗口里用按键切换配色方案，对比 Ironbow 和 Rainbow 的效果
 
 **步骤：**
 
-1. **修改布局文件**
-   - 编辑 `res/layout/activity_main.xml`：
+1. **再加一种配色：Rainbow**
 
-   ```xml
-   <?xml version="1.0" encoding="utf-8"?>
-   <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-       android:layout_width="match_parent"
-       android:layout_height="match_parent"
-       android:orientation="vertical"
-       android:gravity="center"
-       android:background="#000000">
+   Rainbow 可以直接用 OpenCV 内置的 `cv2.COLORMAP_JET`（最接近经典彩虹：蓝→青→绿→黄→红）。我们封装一个函数，按选择返回不同配色：
 
-       <TextView
-           android:id="@+id/titleText"
-           android:layout_width="wrap_content"
-           android:layout_height="wrap_content"
-           android:text="ThermalEyes 热成像"
-           android:textColor="#FFFFFF"
-           android:textSize="20sp"
-           android:layout_marginBottom="10dp"/>
+   ```python
+   def temp_to_color(temps, scheme='ironbow', t_min=None, t_max=None):
+       arr = np.array(temps, dtype=np.float32).reshape(24, 32)
+       if t_min is None: t_min = arr.min()
+       if t_max is None: t_max = arr.max()
+       norm = (arr - t_min) / max(t_max - t_min, 0.1)
+       idx = (norm * 255).astype(np.uint8)
 
-       <ImageView
-           android:id="@+id/thermalImage"
-           android:layout_width="320dp"
-           android:layout_height="240dp"
-           android:scaleType="fitCenter"
-           android:background="#333333"/>
+       if scheme == 'ironbow':
+           color = IRONBOW_LUT[idx]                      # 自建查表
+       elif scheme == 'rainbow':
+           color = cv2.applyColorMap(idx, cv2.COLORMAP_JET)   # 内置
+       elif scheme == 'white_hot':
+           gray = cv2.merge([idx, idx, idx])             # 灰度，热=白
+           color = gray
+       else:
+           color = IRONBOW_LUT[idx]
 
-       <TextView
-           android:id="@+id/tempInfoText"
-           android:layout_width="wrap_content"
-           android:layout_height="wrap_content"
-           android:text="温度: --C ~ --C"
-           android:textColor="#FFFFFF"
-           android:textSize="16sp"
-           android:layout_marginTop="10dp"/>
-
-       <Button
-           android:id="@+id/testButton"
-           android:layout_width="wrap_content"
-           android:layout_height="wrap_content"
-           android:text="生成测试热图"
-           android:layout_marginTop="10dp"/>
-
-   </LinearLayout>
+       return cv2.resize(color, (320, 240), interpolation=cv2.INTER_LINEAR)
    ```
 
-2. **修改 MainActivity**
-   ```java
-   public class MainActivity extends AppCompatActivity {
+2. **按键切换配色**
 
-       static {
-           System.loadLibrary("native-lib");
-       }
+   在主循环里监听键盘：按 `1`/`2`/`3` 切换 Ironbow/Rainbow/White Hot。
 
-       private ImageView thermalImageView;
-       private TextView tempInfoText;
-
-       // JNI 方法声明
-       public native Bitmap renderThermalImage(float[] tempData, int width, int height,
-                                                float minTemp, float maxTemp);
-
-       @Override
-       protected void onCreate(Bundle savedInstanceState) {
-           super.onCreate(savedInstanceState);
-           setContentView(R.layout.activity_main);
-
-           thermalImageView = findViewById(R.id.thermalImage);
-           tempInfoText = findViewById(R.id.tempInfoText);
-
-           Button testButton = findViewById(R.id.testButton);
-           testButton.setOnClickListener(v -> generateTestThermalImage());
-       }
-
-       private void generateTestThermalImage() {
-           // 生成测试温度数据（模拟一个热源在中心）
-           float[] testData = new float[768];
-           float minTemp = 20.0f;
-           float maxTemp = 35.0f;
-
-           for (int y = 0; y < 24; y++) {
-               for (int x = 0; x < 32; x++) {
-                   // 中心高，边缘低
-                   float dx = x - 16.0f;
-                   float dy = y - 12.0f;
-                   float dist = (float)Math.sqrt(dx*dx + dy*dy);
-                   float maxDist = (float)Math.sqrt(16*16 + 12*12);
-                   float temp = 35.0f - (dist / maxDist) * 15.0f;
-                   testData[y * 32 + x] = temp;
-               }
-           }
-
-           // 渲染热图像
-           Bitmap bitmap = renderThermalImage(testData, 32, 24, minTemp, maxTemp);
-           if (bitmap != null) {
-               thermalImageView.setImageBitmap(bitmap);
-               tempInfoText.setText(String.format("温度: %.1fC ~ %.1fC", minTemp, maxTemp));
-           }
-       }
-   }
+   ```python
+   scheme = 'ironbow'  # 当前配色
+   while True:
+       # ... 读帧、解析（复用 Day 11） ...
+       if crc_ok:
+           img = temp_to_color(temps, scheme)
+           cv2.putText(img, f"[{scheme}] center: {center:.1f}C", (10, 20),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+           cv2.imshow('thermal', img)
+           key = cv2.waitKey(1) & 0xFF
+           if key == ord('1'): scheme = 'ironbow'
+           elif key == ord('2'): scheme = 'rainbow'
+           elif key == ord('3'): scheme = 'white_hot'
+           elif key == ord('q'): break
    ```
 
-3. **运行测试**
-   - 编译运行
-   - 点击"生成测试热图"按钮
-   - 应该看到中心偏暖色、边缘偏冷色的热图像
-   - 类似一个从中心向外扩散的"热点"
+3. **运行对比**
+   - 分别按 1/2/3 切换，观察同一个场景在三种配色下的差别
+   - 手掌测试时，留意哪种配色让"热区边界"最清楚
 
 **预期结果：**
-- 界面正确显示
-- 点击按钮后出现伪彩色热图像
-- 热图像呈现中心高温、边缘低温的效果
+- 窗口能显示热图
+- 按键能在 Ironbow / Rainbow / White Hot 之间切换
+- 不同配色的冷暖分布一致，只是"上色"不同
 
 **常见问题：**
 
-**Q: 点击按钮后没有图像？**
-A:
-1. 检查 Logcat 中是否有错误日志
-2. 确认 JNI 函数名正确
-3. 确认 Bitmap 创建成功
+**Q: 按键没反应？**
+A: `cv2.waitKey(1) & 0xFF` 要接住返回值再判断。窗口必须是焦点（点一下窗口再按键）。`waitKey` 的参数是毫秒，填 0 会阻塞等待，要填 1 让循环继续转。
 
-**Q: 图像显示变形？**
-A: 检查 ImageView 的 scaleType 和宽高比。320:240 = 4:3。
+**Q: JET（Rainbow）看起来颜色断层？**
+A: JET 本身色阶就是分段的，正常现象。这正是 Ironbow 更受欢迎的原因之一——亮度单调递增，更符合人眼感知。
 
 ---
 
-### Task 4: 添加色标条 (estimated 30 minutes)
+### Task 4: 画面上叠色标条 (estimated 30 minutes)
 
-**目标：** 在热图像旁边显示温度色标条，帮助用户理解颜色含义
+**目标：** 在热图旁边画一条温度色标条，让人一眼看懂"什么颜色对应什么温度"
 
 **步骤：**
 
-1. **在布局中添加色标条**
-   ```xml
-   <LinearLayout
-       android:layout_width="wrap_content"
-       android:layout_height="240dp"
-       android:orientation="horizontal"
-       android:layout_marginTop="10dp">
+1. **生成一条色标条**
 
-       <ImageView
-           android:id="@+id/thermalImage"
-           android:layout_width="320dp"
-           android:layout_height="240dp"
-           ... />
+   色标条就是把"从最冷到最热"的颜色竖着排一条。我们直接造一组从 0 到 255 的索引，套用同一个 LUT：
 
-       <!-- 色标条 -->
-       <ImageView
-           android:id="@+id/colorBar"
-           android:layout_width="30dp"
-           android:layout_height="240dp"
-           android:layout_marginLeft="5dp"/>
-
-   </LinearLayout>
+   ```python
+   def make_colorbar(scheme='ironbow', height=240, width=30):
+       # 从上(热)到下(冷)：索引从 255 到 0
+       ramp = np.linspace(255, 0, height).astype(np.uint8)         # (height,)
+       ramp = np.tile(ramp[:, None], (1, width))                   # (height, width)
+       if scheme == 'rainbow':
+           bar = cv2.applyColorMap(ramp, cv2.COLORMAP_JET)
+       elif scheme == 'white_hot':
+           bar = cv2.merge([ramp, ramp, ramp])
+       else:
+           bar = IRONBOW_LUT[ramp]                                  # 自建 LUT
+       return bar
    ```
 
-2. **生成色标条图像**
-   - 可以在 C++ 中生成一个垂直渐变条
-   - 或者在 Java 中使用 Canvas 绘制
+2. **把色标条拼到热图右边**
 
-   ```java
-   private Bitmap generateColorBar(float minTemp, float maxTemp) {
-       int width = 30;
-       int height = 240;
-       float[] barData = new float[height * width];
-
-       // 从上到下：高温到低温
-       for (int y = 0; y < height; y++) {
-           float ratio = 1.0f - (float)y / height;
-           float temp = minTemp + ratio * (maxTemp - minTemp);
-           for (int x = 0; x < width; x++) {
-               barData[y * width + x] = temp;
-           }
-       }
-
-       return renderThermalImage(barData, width, height, minTemp, maxTemp);
-   }
+   ```python
+   img = temp_to_color(temps, scheme)
+   bar = make_colorbar(scheme)
+   combined = np.hstack([img, bar])                                # 热图 + 色标条
+   cv2.imshow('thermal', combined)
    ```
+
+3. **（可选）标几个温度刻度**
+   用 `cv2.putText` 在色标条上标 25°C / 30°C / 35°C 的位置，帮助读数。
 
 **预期结果：**
-- 热图像旁边显示色标条
-- 上方为高温色，下方为低温色
+- 热图右侧出现一条色标条
+- 顶部是高温色（白/红），底部是低温色（黑/蓝）
 
 ---
 
 ## 今日作业 | Homework
 
 1. **热图像渲染**（必须）
-   - 成功显示测试热图像
-   - Ironbow 配色方案正确实现
+   - 屏幕上成功显示 Ironbow 热图
+   - Ironbow 查表函数正确实现
    - 提交运行截图
 
 2. **算法笔记**（必须）
@@ -419,24 +280,24 @@ A: 检查 ImageView 的 scaleType 和宽高比。320:240 = 4:3。
 
 3. **配色方案比较**（推荐）
    - 实现至少 2 种配色方案（Ironbow + Rainbow 或 White Hot）
-   - 添加切换按钮，比较不同方案的效果
+   - 按键切换，比较不同方案的效果
    - 记录你的偏好和理由
 
 4. **挑战任务**（可选）
-   - 实现温度十字线：在热图像中心显示一个十字标记，显示该点的精确温度
-   - 添加温度范围滑块，动态调整 minTemp/maxTemp
+   - 画面中心画十字线，显示该点精确温度
+   - 加滑块/按键动态调整 minTemp/maxTemp，看热图如何变化
 
 ## 明日预告 | Tomorrow's Preview
 
-明天我们将实现图像融合 -- 将热图像与可见光图像叠加显示！这是双目热成像仪的核心功能。你还将学习如何通过 USB 接收固件发送的实时数据，完善 APP 的通信功能。
+明天我们将实现图像融合——把热图和电脑摄像头拍的可见光画面叠在一起！这是双目热成像仪的核心功能。还会把 USB 接收、伪彩、融合串成一个完整的 PC 可视化脚本，准备进入全系统联调。
 
 ## 参考资源 | References
 
 - **OpenCV 颜色映射**：https://docs.opencv.org/master/d3/d50/group__imgproc__colormap.html
 - **伪彩色算法详解**：https://www.flir.com/discover/cores/thermal-imaging-colormaps-explained/
 - **OpenCV resize 插值**：https://docs.opencv.org/master/da/d54/group__imgproc__transform.html
-- **Android Bitmap 操作**：https://developer.android.com/reference/android/graphics/Bitmap
-- **ThermalEyes APP 源码**：https://github.com/colourfate/ThermalEyes
+- **本课程现成函数**：`software/tests/test_basic.py`（伪彩映射、高斯频率分解，可直接复用）
+- **colourfate 开源 Android APP（进阶参考）**：https://github.com/colourfate/ThermalEyes
 
 ---
 
