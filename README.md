@@ -1,5 +1,7 @@
 # 双目手机热成像仪 "ThermalEyes" | Binocular Mobile Phone Thermal Imager
 
+<!-- 注：价格信息已注释隐藏（查价不准确，仅作参考不严谨）/ Note: price info commented out (inaccurate, not rigorous as reference) -->
+
 ## 项目简介 | Project Overview
 
 "ThermalEyes" 是一个基于可见光和热成像传感器的双目手机热成像仪开源项目。设备同时具有普通可见光摄像头和红外热成像传感器，通过 MCU（STM32F411）读取传感器数据后经 USB 传输到手机端，借助手机算力进行图像处理和融合，最终在手机屏幕上显示高质量的热成像叠加图像。
@@ -52,14 +54,14 @@ After completing this project, you will have a device that can:
 
 | 部件 | 规格 | 参考价格 | 说明 |
 |------|------|----------|------|
-| STM32F411CEU6 | Cortex-M4 MCU | ¥15 | 主控芯片 |
-| MLX90640 | 32×24 热成像传感器 | ¥80-120 | 红外热成像模块 |
-| OV2640/OV5640 | 可见光摄像头模块 | ¥15-25 | 用于可见光采集 |
-| USB Type-C 连接器 | - | ¥2 | 与手机连接 |
-| PCB | 嘉立创打样 | ¥5-20 | 参考OSHWhub设计 |
-| 其他被动元件 | 电容电阻等 | ¥10-20 | 按BOM采购 |
+| STM32F411CEU6 | Cortex-M4 MCU | <!-- ¥15 --> | 主控芯片 |
+| MLX90640 | 32×24 热成像传感器 | <!-- ¥80-120 --> | 红外热成像模块 |
+| OV2640/OV5640 | 可见光摄像头模块 | <!-- ¥15-25 --> | 用于可见光采集 |
+| USB Type-C 连接器 | - | <!-- ¥2 --> | 与手机连接 |
+| PCB | 嘉立创打样 | <!-- ¥5-20 --> | 参考OSHWhub设计 |
+| 其他被动元件 | 电容电阻等 | <!-- ¥10-20 --> | 按BOM采购 |
 
-**总预算：约 ¥150-200**
+**总预算：约 <!-- ¥150-200 -->**
 
 详细清单见 [hardware/BOM.md](hardware/BOM.md)
 
